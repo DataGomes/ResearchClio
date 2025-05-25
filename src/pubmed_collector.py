@@ -71,10 +71,36 @@ class PubMedCollector:
         """Search PubMed and return list of PMIDs"""
         print(f"Searching PubMed for: {query}")
         
+        # First, get the total count
         handle = Entrez.esearch(
             db="pubmed",
             term=query,
-            retmax=max_results,
+            retmax=0,  # Just get count
+            sort="relevance"
+        )
+        results = Entrez.read(handle)
+        handle.close()
+        
+        total_count = int(results["Count"])
+        print(f"Total articles available: {total_count}")
+        
+        # If we want more than 9999, we need to handle it differently
+        all_pmids = []
+        batch_size = 9995  # Slightly less than PubMed's limit of 9999 to be safe
+        
+        # PubMed ESearch can only retrieve first 9999 records total
+        if max_results > 9999 or total_count > 9999:
+            print(f"Warning: PubMed ESearch limited to first 9999 results.")
+            print(f"Requested: {max_results}, Available: {total_count}")
+            actual_max = min(9995, max_results)
+        else:
+            actual_max = min(max_results, total_count)
+        
+        # Just get what we can in one request (max 9995)
+        handle = Entrez.esearch(
+            db="pubmed",
+            term=query,
+            retmax=actual_max,
             sort="relevance"
         )
         
@@ -82,7 +108,8 @@ class PubMedCollector:
         handle.close()
         
         pmids = results["IdList"]
-        print(f"Found {len(pmids)} articles")
+        print(f"Retrieved {len(pmids)} articles")
+        
         return pmids
     
     def fetch_abstracts(self, pmids: List[str]) -> List[Dict]:
@@ -180,25 +207,160 @@ class PubMedCollector:
             print(f"Error extracting data: {e}")
             return None
     
-    def collect_ai_abstracts(self, max_results: int = 100, use_cache: bool = True, 
-                           start_year: int = None, end_year: int = None, language: str = "eng") -> List[Dict]:
-        """Main method to collect AI-related abstracts"""
-        # Search query focused on artificial intelligence
-        base_query = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract'
+    def collect_abstracts_by_month(self, base_query: str, year: int, language: str = "eng") -> List[Dict]:
+        """Collect abstracts month by month to bypass API limits"""
+        all_abstracts = []
         
-        # Add year filter if specified
-        if start_year and end_year:
-            query = f'{base_query} AND ("{start_year}"[Date - Publication] : "{end_year}"[Date - Publication])'
-        elif start_year:
-            # If only start year specified, use current year as end year
-            query = f'{base_query} AND ("{start_year}"[Date - Publication] : "{start_year}"[Date - Publication])'
-        else:
-            query = base_query
+        for month in range(1, 13):
+            month_str = f"{month:02d}"
+            month_query = f'{base_query} AND ("{year}/{month_str}"[Date - Publication])'
             
-        # Add language filter if specified
-        if language:
-            query = f'{query} AND {language}[Language]'
+            if language:
+                month_query = f'{month_query} AND {language}[Language]'
+            
+            print(f"\nSearching {year}/{month_str}...")
+            month_pmids = self.search_pubmed(month_query, max_results=9995)
+            
+            if month_pmids:
+                # Fetch abstracts for this month
+                month_abstracts = self.fetch_abstracts(month_pmids)
+                all_abstracts.extend(month_abstracts)
+                print(f"Total collected so far: {len(all_abstracts)}")
+            
+            # Be nice to NCBI
+            time.sleep(1)
         
+        return all_abstracts
+    
+    def collect_abstracts(self, query: str, max_results: int = 100, use_cache: bool = True) -> List[Dict]:
+        """Generic method to collect abstracts with custom query"""
+        # Check if we need month-by-month collection
+        # First, check how many results the query would return
+        if max_results > 9995:
+            # Test the query to see total count
+            handle = Entrez.esearch(
+                db="pubmed",
+                term=query,
+                retmax=0,
+                sort="relevance"
+            )
+            results = Entrez.read(handle)
+            handle.close()
+            total_count = int(results["Count"])
+            
+            if total_count > 9995:
+                print(f"Query has {total_count} results. Will search month by month to get all.")
+                # Extract year from query if present
+                import re
+                year_match = re.search(r'"(\d{4})"\[Date - Publication\]', query)
+                if year_match:
+                    year = int(year_match.group(1))
+                    # Remove year from base query to add month-specific dates
+                    base_query = re.sub(r'AND \("\d{4}"\[Date - Publication\] : "\d{4}"\[Date - Publication\]\)', '', query).strip()
+                    
+                    # Check cache for full dataset
+                    if use_cache:
+                        cache_key = self._get_cache_key(query, max_results)
+                        cache_path = self._get_cache_path(cache_key)
+                        
+                        if self._is_cache_valid(cache_path):
+                            print(f"Using cached PubMed data (cache key: {cache_key})")
+                            return self._load_from_cache(cache_path)
+                    
+                    # Collect by month
+                    all_abstracts = []
+                    for month in range(1, 13):
+                        month_str = f"{month:02d}"
+                        month_query = f'{base_query} AND ("{year}/{month_str}"[Date - Publication])'
+                        
+                        print(f"\nSearching {year}/{month_str}...")
+                        
+                        # First check how many results this month has
+                        handle = Entrez.esearch(
+                            db="pubmed",
+                            term=month_query,
+                            retmax=0,
+                            sort="relevance"
+                        )
+                        month_results = Entrez.read(handle)
+                        handle.close()
+                        month_count = int(month_results["Count"])
+                        
+                        if month_count > 9995:
+                            # Need to split by day ranges
+                            print(f"Month {year}/{month_str} has {month_count} articles. Splitting by day ranges...")
+                            
+                            # Try first half and second half of month
+                            for day_range in [(1, 15), (16, 31)]:
+                                start_day, end_day = day_range
+                                day_query = f'{base_query} AND ("{year}/{month_str}/{start_day:02d}"[Date - Publication] : "{year}/{month_str}/{end_day:02d}"[Date - Publication])'
+                                
+                                print(f"  Searching {year}/{month_str}/{start_day:02d}-{end_day:02d}...")
+                                
+                                # Check count for this range
+                                handle = Entrez.esearch(
+                                    db="pubmed",
+                                    term=day_query,
+                                    retmax=0,
+                                    sort="relevance"
+                                )
+                                range_results = Entrez.read(handle)
+                                handle.close()
+                                range_count = int(range_results["Count"])
+                                
+                                if range_count > 9995:
+                                    # Even half month is too much, go day by day
+                                    print(f"    Range has {range_count} articles. Searching day by day...")
+                                    for day in range(start_day, min(end_day + 1, 32)):
+                                        day_query = f'{base_query} AND ("{year}/{month_str}/{day:02d}"[Date - Publication])'
+                                        print(f"    Searching {year}/{month_str}/{day:02d}...")
+                                        
+                                        day_pmids = self.search_pubmed(day_query, max_results=9995)
+                                        if day_pmids:
+                                            day_abstracts = self.fetch_abstracts(day_pmids)
+                                            all_abstracts.extend(day_abstracts)
+                                            print(f"    Total collected so far: {len(all_abstracts)}")
+                                            
+                                            if len(all_abstracts) >= max_results:
+                                                print(f"Reached requested limit of {max_results}")
+                                                return all_abstracts[:max_results]
+                                        
+                                        time.sleep(0.5)
+                                else:
+                                    # This range is OK, fetch it
+                                    range_pmids = self.search_pubmed(day_query, max_results=9995)
+                                    if range_pmids:
+                                        range_abstracts = self.fetch_abstracts(range_pmids)
+                                        all_abstracts.extend(range_abstracts)
+                                        print(f"  Total collected so far: {len(all_abstracts)}")
+                                        
+                                        if len(all_abstracts) >= max_results:
+                                            print(f"Reached requested limit of {max_results}")
+                                            return all_abstracts[:max_results]
+                                    
+                                    time.sleep(1)
+                        else:
+                            # Month has less than 9995, fetch normally
+                            month_pmids = self.search_pubmed(month_query, max_results=9995)
+                            
+                            if month_pmids:
+                                month_abstracts = self.fetch_abstracts(month_pmids)
+                                all_abstracts.extend(month_abstracts)
+                                print(f"Total collected so far: {len(all_abstracts)}")
+                                
+                                if len(all_abstracts) >= max_results:
+                                    print(f"Reached requested limit of {max_results}")
+                                    return all_abstracts[:max_results]
+                            
+                            time.sleep(1)
+                    
+                    # Save to cache
+                    if use_cache and all_abstracts:
+                        self._save_to_cache(all_abstracts[:max_results], cache_path)
+                    
+                    return all_abstracts[:max_results]
+        
+        # Regular approach for queries under 9995 results
         # Check cache first
         if use_cache:
             cache_key = self._get_cache_key(query, max_results)

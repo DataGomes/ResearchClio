@@ -44,7 +44,7 @@ class Hierarchizer:
         return embeddings, cluster_ids
     
     def group_into_neighborhoods(self, embeddings: np.ndarray, 
-                               target_per_neighborhood: int = 40) -> np.ndarray:
+                               target_per_neighborhood: int = None) -> np.ndarray:
         """Group clusters into neighborhoods for hierarchical processing"""
         n_clusters = len(embeddings)
         n_neighborhoods = max(1, n_clusters // target_per_neighborhood)
@@ -139,7 +139,7 @@ The suggested_children field should contain the numbers of child clusters that b
             # Merge very similar clusters (similarity > 0.9)
             merged_children = cluster['suggested_children'].copy()
             for j, sim in similarities:
-                if sim > 0.9:
+                if sim > 0.7:  # Lowered from 0.9 to create more distinct clusters
                     merged_children.extend(all_proposed[j]['suggested_children'])
                     used_indices.add(j)
             

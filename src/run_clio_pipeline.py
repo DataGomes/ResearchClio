@@ -57,11 +57,18 @@ class CLIOPipeline:
         # Step 1: Collect PubMed abstracts
         print("STEP 1: Collecting PubMed abstracts...")
         collector = PubMedCollector()
-        abstracts_list = collector.collect_ai_abstracts(
+        
+        # Build the full query with year and language filters
+        full_query = query
+        if start_year:
+            full_query = f'{full_query} AND ("{start_year}"[Date - Publication] : "{start_year}"[Date - Publication])'
+        if language:
+            full_query = f'{full_query} AND {language}[Language]'
+        
+        abstracts_list = collector.collect_abstracts(
+            query=full_query,
             max_results=max_abstracts, 
-            use_cache=use_cache,
-            start_year=start_year,
-            language=language
+            use_cache=use_cache
         )
         
         if not abstracts_list:
