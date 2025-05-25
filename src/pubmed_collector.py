@@ -180,10 +180,24 @@ class PubMedCollector:
             print(f"Error extracting data: {e}")
             return None
     
-    def collect_ai_abstracts(self, max_results: int = 100, use_cache: bool = True) -> List[Dict]:
+    def collect_ai_abstracts(self, max_results: int = 100, use_cache: bool = True, 
+                           start_year: int = None, end_year: int = None, language: str = "eng") -> List[Dict]:
         """Main method to collect AI-related abstracts"""
         # Search query focused on artificial intelligence
-        query = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract'
+        base_query = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract'
+        
+        # Add year filter if specified
+        if start_year and end_year:
+            query = f'{base_query} AND ("{start_year}"[Date - Publication] : "{end_year}"[Date - Publication])'
+        elif start_year:
+            # If only start year specified, use current year as end year
+            query = f'{base_query} AND ("{start_year}"[Date - Publication] : "{start_year}"[Date - Publication])'
+        else:
+            query = base_query
+            
+        # Add language filter if specified
+        if language:
+            query = f'{query} AND {language}[Language]'
         
         # Check cache first
         if use_cache:

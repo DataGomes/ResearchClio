@@ -40,7 +40,9 @@ class CLIOPipeline:
                     min_cluster_size: int = 5,
                     target_hierarchy_levels: int = 3,
                     top_k_clusters: int = 5,
-                    use_cache: bool = True):
+                    use_cache: bool = True,
+                    start_year: int = None,
+                    language: str = "eng"):
         """Run the complete CLIO pipeline"""
         
         print("\n" + "="*60)
@@ -55,7 +57,12 @@ class CLIOPipeline:
         # Step 1: Collect PubMed abstracts
         print("STEP 1: Collecting PubMed abstracts...")
         collector = PubMedCollector()
-        abstracts_list = collector.collect_ai_abstracts(max_results=max_abstracts, use_cache=use_cache)
+        abstracts_list = collector.collect_ai_abstracts(
+            max_results=max_abstracts, 
+            use_cache=use_cache,
+            start_year=start_year,
+            language=language
+        )
         
         if not abstracts_list:
             print("ERROR: No abstracts collected!")
@@ -192,6 +199,18 @@ def main():
         action="store_true",
         help="Disable caching of PubMed abstracts"
     )
+    parser.add_argument(
+        "--start-year",
+        type=int,
+        default=None,
+        help="Filter abstracts from this year onwards (e.g., 2020)"
+    )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default="eng",
+        help="Language filter (default: eng for English)"
+    )
     
     args = parser.parse_args()
     
@@ -202,7 +221,9 @@ def main():
         min_cluster_size=args.min_cluster_size,
         target_hierarchy_levels=args.hierarchy_levels,
         top_k_clusters=args.top_clusters,
-        use_cache=not args.no_cache
+        use_cache=not args.no_cache,
+        start_year=args.start_year,
+        language=args.language
     )
 
 
