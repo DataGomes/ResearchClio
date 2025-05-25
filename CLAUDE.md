@@ -128,3 +128,7 @@ TOP LEVEL (3 clusters):
   ▪ Clinical Trial Prediction
     Using AI to predict drug efficacy...
 ```
+
+## Behavioral Guidelines
+- If any part of the instructions is not clear, ask for clarifications
+- It is acceptable and recommended to ask questions to ensure accurate task completion
