@@ -186,8 +186,8 @@ def main():
     parser.add_argument(
         "--hierarchy-levels",
         type=int,
-        default=3,
-        help="Number of hierarchy levels (default: 3)"
+        default=10,
+        help="Maximum hierarchy levels to create (default: 10, algorithm will use fewer if appropriate)"
     )
     parser.add_argument(
         "--top-clusters",

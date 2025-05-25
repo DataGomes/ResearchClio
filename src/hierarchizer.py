@@ -280,8 +280,15 @@ Respond with JSON in this format:
             # Calculate target number of parents
             n_current = len(current_clusters)
             levels_remaining = target_levels - current_level - 1
-            reduction_factor = (top_k / n_current) ** (1 / levels_remaining)
-            target_n_parents = max(top_k, int(n_current * reduction_factor))
+            
+            # For intermediate levels, aim for gradual reduction
+            if levels_remaining > 1:
+                # Use sqrt reduction for natural hierarchy
+                # This creates ~7-10 children per parent on average
+                target_n_parents = max(top_k, int(np.sqrt(n_current) * 1.5))
+            else:
+                # Last level: reach the final top_k target
+                target_n_parents = top_k
             
             print(f"Target parent clusters: {target_n_parents}")
             
