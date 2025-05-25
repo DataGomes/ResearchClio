@@ -34,10 +34,19 @@ class PubMedCollector:
         self.cache_dir = cache_dir
         os.makedirs(self.cache_dir, exist_ok=True)
     
-    def _get_cache_key(self, query: str, max_results: int) -> str:
+    def _get_cache_key(self, query: str, max_results: int = None, year_month: str = None) -> str:
         """Generate a cache key based on query parameters"""
-        cache_string = f"{query}:{max_results}"
+        if year_month:
+            # For month-specific caching
+            cache_string = f"{query}:{year_month}"
+        else:
+            # For full query caching
+            cache_string = f"{query}:{max_results}"
         return hashlib.md5(cache_string.encode()).hexdigest()
+    
+    def _get_segment_cache_key(self, query: str) -> str:
+        """Generate a cache key for a specific query segment (month/day)"""
+        return hashlib.md5(query.encode()).hexdigest()
     
     def _get_cache_path(self, cache_key: str) -> str:
         """Get the full path to the cache file"""
@@ -66,6 +75,31 @@ class PubMedCollector:
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(abstracts, f, indent=2, ensure_ascii=False)
         print(f"Saved {len(abstracts)} abstracts to cache")
+    
+    def _fetch_segment_with_cache(self, query: str, max_results: int = 9995, use_cache: bool = True) -> List[Dict]:
+        """Fetch abstracts for a specific query segment with caching"""
+        if use_cache:
+            cache_key = self._get_segment_cache_key(query)
+            cache_path = self._get_cache_path(cache_key)
+            
+            if self._is_cache_valid(cache_path):
+                print(f"  Using cached data for this segment")
+                return self._load_from_cache(cache_path)
+        
+        # Not in cache, fetch from PubMed
+        pmids = self.search_pubmed(query, max_results=max_results)
+        if not pmids:
+            return []
+            
+        abstracts = self.fetch_abstracts(pmids)
+        
+        # Cache this segment
+        if use_cache and abstracts:
+            cache_key = self._get_segment_cache_key(query)
+            cache_path = self._get_cache_path(cache_key)
+            self._save_to_cache(abstracts, cache_path)
+        
+        return abstracts
             
     def search_pubmed(self, query: str, max_results: int = 100) -> List[str]:
         """Search PubMed and return list of PMIDs"""
@@ -207,7 +241,7 @@ class PubMedCollector:
             print(f"Error extracting data: {e}")
             return None
     
-    def collect_abstracts_by_month(self, base_query: str, year: int, language: str = "eng") -> List[Dict]:
+    def collect_abstracts_by_month(self, base_query: str, year: int, language: str = "eng", use_cache: bool = True) -> List[Dict]:
         """Collect abstracts month by month to bypass API limits"""
         all_abstracts = []
         
@@ -219,11 +253,8 @@ class PubMedCollector:
                 month_query = f'{month_query} AND {language}[Language]'
             
             print(f"\nSearching {year}/{month_str}...")
-            month_pmids = self.search_pubmed(month_query, max_results=9995)
-            
-            if month_pmids:
-                # Fetch abstracts for this month
-                month_abstracts = self.fetch_abstracts(month_pmids)
+            month_abstracts = self._fetch_segment_with_cache(month_query, max_results=9995, use_cache=use_cache)
+            if month_abstracts:
                 all_abstracts.extend(month_abstracts)
                 print(f"Total collected so far: {len(all_abstracts)}")
             
@@ -315,9 +346,8 @@ class PubMedCollector:
                                         day_query = f'{base_query} AND ("{year}/{month_str}/{day:02d}"[Date - Publication])'
                                         print(f"    Searching {year}/{month_str}/{day:02d}...")
                                         
-                                        day_pmids = self.search_pubmed(day_query, max_results=9995)
-                                        if day_pmids:
-                                            day_abstracts = self.fetch_abstracts(day_pmids)
+                                        day_abstracts = self._fetch_segment_with_cache(day_query, max_results=9995, use_cache=use_cache)
+                                        if day_abstracts:
                                             all_abstracts.extend(day_abstracts)
                                             print(f"    Total collected so far: {len(all_abstracts)}")
                                             
@@ -328,9 +358,8 @@ class PubMedCollector:
                                         time.sleep(0.5)
                                 else:
                                     # This range is OK, fetch it
-                                    range_pmids = self.search_pubmed(day_query, max_results=9995)
-                                    if range_pmids:
-                                        range_abstracts = self.fetch_abstracts(range_pmids)
+                                    range_abstracts = self._fetch_segment_with_cache(day_query, max_results=9995, use_cache=use_cache)
+                                    if range_abstracts:
                                         all_abstracts.extend(range_abstracts)
                                         print(f"  Total collected so far: {len(all_abstracts)}")
                                         
@@ -341,10 +370,8 @@ class PubMedCollector:
                                     time.sleep(1)
                         else:
                             # Month has less than 9995, fetch normally
-                            month_pmids = self.search_pubmed(month_query, max_results=9995)
-                            
-                            if month_pmids:
-                                month_abstracts = self.fetch_abstracts(month_pmids)
+                            month_abstracts = self._fetch_segment_with_cache(month_query, max_results=9995, use_cache=use_cache)
+                            if month_abstracts:
                                 all_abstracts.extend(month_abstracts)
                                 print(f"Total collected so far: {len(all_abstracts)}")
                                 
