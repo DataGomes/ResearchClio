@@ -73,14 +73,22 @@ python src/run_clio_pipeline.py --max-abstracts 1000 --min-cluster-size 10 --hie
 Each run creates a timestamped directory with:
 ```
 output/run_YYYYMMDD_HHMMSS/
-├── abstracts.json          # Raw PubMed data
-├── embeddings.pkl          # Generated embeddings
-├── clustering.pkl          # Clustering results
-├── cluster_names.json      # Claude-generated names
-├── hierarchy.json          # Full hierarchical structure
-├── hierarchy.txt           # Human-readable tree view
-└── clusters.csv           # Flattened CSV for analysis
+├── abstracts.json              # Raw PubMed data
+├── embeddings.pkl              # Generated embeddings
+├── clustering.pkl              # Clustering results
+├── cluster_names.json          # Claude-generated names
+├── complete_hierarchy.json     # Full hierarchy with top cluster and all levels
+├── hierarchy.json              # Detailed structure with abstract IDs
+├── hierarchy.txt               # Human-readable tree view
+└── clusters.csv               # Flattened CSV for analysis
 ```
+
+### Key Output: complete_hierarchy.json
+This is the main output for downstream applications, containing:
+- Top-level cluster(s) with name and description
+- Intermediate hierarchy levels (if any)
+- All base clusters sorted by size
+- Complete PMID lists for each cluster
 
 ## Cost Estimation
 - 100 abstracts: ~$0.10 (using Haiku)

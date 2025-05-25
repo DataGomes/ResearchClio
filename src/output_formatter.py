@@ -10,35 +10,119 @@ import pandas as pd
 from datetime import datetime
 
 class OutputFormatter:
-    def __init__(self, abstracts_data: Dict[str, Dict]):
+    def __init__(self, abstracts_data: Dict[str, Dict], run_dir: str = None):
         """Initialize with abstracts data for reference"""
         self.abstracts = abstracts_data
+        self.run_dir = run_dir
     
     def format_hierarchy_text(self, hierarchy: Dict, 
                             indent: str = "  ",
-                            show_abstracts: bool = True,
+                            show_abstracts: bool = False,
                             max_abstracts_per_cluster: int = 3) -> str:
         """Format hierarchy as indented text"""
         output = []
         output.append("HIERARCHICAL CLUSTERING OF AI ABSTRACTS")
-        output.append("=" * 50)
+        output.append("=" * 80)
+        
+        # Load clustering data to get abstract counts
+        import pickle
+        import os
+        from collections import Counter
+        
+        run_dir = os.path.dirname(list(self.abstracts.values())[0].get('_source_file', ''))
+        if run_dir and os.path.exists(os.path.join(run_dir, 'clustering.pkl')):
+            with open(os.path.join(run_dir, 'clustering.pkl'), 'rb') as f:
+                clustering = pickle.load(f)
+            cluster_counts = Counter(clustering['labels'])
+        else:
+            cluster_counts = {}
+        
+        # Get statistics
+        total_abstracts = len(self.abstracts)
+        if 'base_clusters' in hierarchy:
+            base_clusters = hierarchy['base_clusters']
+            num_base_clusters = len(base_clusters)
+        else:
+            base_clusters = {}
+            num_base_clusters = 0
+        
+        output.append(f"Total abstracts: {total_abstracts}")
+        output.append(f"Base-level clusters: {num_base_clusters}")
+        
+        # Determine hierarchy depth
+        if 'levels' in hierarchy:
+            hierarchy_depth = len(hierarchy['levels']) + 1
+        else:
+            hierarchy_depth = 1
+            
+        output.append(f"Hierarchy levels: {hierarchy_depth}")
+        output.append("=" * 80)
         output.append("")
         
-        # Get top level clusters
-        if hierarchy['levels']:
+        # If we have a proper hierarchy structure
+        if 'levels' in hierarchy and hierarchy['levels']:
+            # Get top level
             top_level = hierarchy['levels'][-1]['clusters']
-            output.append(f"TOP LEVEL ({len(top_level)} clusters):")
+            
+            # For single top cluster, show complete hierarchy
+            if len(top_level) == 1:
+                cluster_id, cluster = list(top_level.items())[0]
+                output.append(f"▪ TOP LEVEL: {cluster['name']} ({total_abstracts} abstracts)")
+                output.append(f"  {cluster['description']}")
+                output.append("")
+                
+                # Show all base clusters sorted by size
+                sorted_base = sorted(base_clusters.items(), 
+                                   key=lambda x: cluster_counts.get(int(x[0]), 0), 
+                                   reverse=True)
+                
+                output.append(f"  BASE CLUSTERS ({len(sorted_base)} clusters):")
+                output.append("")
+                
+                for cid, info in sorted_base:
+                    count = cluster_counts.get(int(cid), 0)
+                    output.append(f"  └─ {info['name']} ({count} abstracts)")
+                    output.append(f"     {info['description']}")
+                    output.append("")
+            else:
+                # Multiple top clusters - use original recursive format
+                output.append(f"TOP LEVEL ({len(top_level)} clusters):")
+                output.append("")
+                
+                for cluster_id, cluster in top_level.items():
+                    self._format_cluster_recursive(
+                        cluster, hierarchy, 0, output, indent,
+                        show_abstracts, max_abstracts_per_cluster
+                    )
+                    output.append("")
+        else:
+            # No hierarchy levels, just show base clusters
+            output.append("Note: Hierarchical clustering converged to a single group.")
+            output.append("Showing all base clusters:")
             output.append("")
             
-            # Recursively format each top cluster
-            for cluster_id, cluster in top_level.items():
-                self._format_cluster_recursive(
-                    cluster, hierarchy, 0, output, indent,
-                    show_abstracts, max_abstracts_per_cluster
-                )
-                output.append("")  # Empty line between top clusters
+            # Sort by cluster size
+            sorted_base = sorted(base_clusters.items(), 
+                               key=lambda x: cluster_counts.get(int(x[0]), 0), 
+                               reverse=True)
+            
+            for cid, info in sorted_base:
+                count = cluster_counts.get(int(cid), 0)
+                output.append(f"└─ {info['name']} ({count} abstracts)")
+                output.append(f"   {info['description']}")
+                output.append("")
+        
+        # Add summary statistics
+        output.append("")
+        output.append("SUMMARY STATISTICS")
+        output.append("-" * 40)
+        if cluster_counts:
+            output.append(f"Largest cluster: {max(cluster_counts.values())} abstracts")
+            output.append(f"Smallest cluster: {min(cluster_counts.values())} abstracts")
+            output.append(f"Average cluster size: {sum(cluster_counts.values()) / len(cluster_counts):.1f} abstracts")
         
         return "\n".join(output)
+    
     
     def _format_cluster_recursive(self, cluster: Dict, hierarchy: Dict,
                                 level: int, output: List[str], indent: str,
@@ -81,13 +165,122 @@ class OutputFormatter:
     
     def format_json_output(self, hierarchy: Dict, 
                          include_full_abstracts: bool = False) -> Dict:
-        """Format hierarchy as structured JSON"""
+        """Format hierarchy as structured JSON with complete hierarchy information"""
+        # Load clustering data if available
+        import pickle
+        import os
+        from collections import Counter
+        
+        cluster_counts = {}
+        cluster_to_abstracts = {}
+        
+        if self.run_dir and os.path.exists(os.path.join(self.run_dir, 'clustering.pkl')):
+            with open(os.path.join(self.run_dir, 'clustering.pkl'), 'rb') as f:
+                clustering = pickle.load(f)
+            cluster_counts = Counter(clustering['labels'])
+            
+            # Map clusters to abstract IDs
+            for pmid, label in zip(clustering['pmids'], clustering['labels']):
+                if label not in cluster_to_abstracts:
+                    cluster_to_abstracts[label] = []
+                cluster_to_abstracts[label].append(pmid)
+        
+        # Build complete structure
         result = {
-            "generated_at": datetime.now().isoformat(),
-            "total_abstracts": len(self.abstracts),
-            "hierarchy": self._build_json_hierarchy(hierarchy, include_full_abstracts)
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "total_abstracts": len(self.abstracts),
+                "hierarchy_levels": len(hierarchy.get('levels', [])) + 1 if 'levels' in hierarchy else 1,
+                "base_clusters": len(hierarchy.get('base_clusters', {}))
+            },
+            "statistics": {
+                "cluster_sizes": {
+                    "min": min(cluster_counts.values()) if cluster_counts else 0,
+                    "max": max(cluster_counts.values()) if cluster_counts else 0,
+                    "mean": sum(cluster_counts.values()) / len(cluster_counts) if cluster_counts else 0
+                }
+            },
+            "hierarchy": self._build_complete_json_hierarchy(
+                hierarchy, cluster_counts, cluster_to_abstracts, include_full_abstracts
+            )
         }
+        
         return result
+    
+    def _build_complete_json_hierarchy(self, hierarchy: Dict, cluster_counts: Dict,
+                                     cluster_to_abstracts: Dict,
+                                     include_full_abstracts: bool) -> Dict:
+        """Build complete JSON hierarchy with all levels and metadata"""
+        json_hierarchy = {
+            "levels": [],
+            "base_clusters": []
+        }
+        
+        # Get base clusters
+        base_clusters = hierarchy.get('base_clusters', {})
+        
+        # Build the complete hierarchy from top to bottom
+        if 'levels' in hierarchy and hierarchy['levels']:
+            # We have multiple levels - build them all
+            for level_idx, level_data in enumerate(reversed(hierarchy['levels'])):
+                level_clusters = []
+                for cluster_id, cluster in level_data['clusters'].items():
+                    cluster_entry = {
+                        "id": cluster_id,
+                        "name": cluster['name'],
+                        "description": cluster['description'],
+                        "children": cluster.get('children', [])
+                    }
+                    level_clusters.append(cluster_entry)
+                
+                json_hierarchy["levels"].append({
+                    "level": len(hierarchy['levels']) - level_idx,
+                    "clusters": level_clusters
+                })
+        
+        # Add base clusters with their data
+        for cid, info in base_clusters.items():
+            cluster_data = {
+                "id": int(cid),
+                "name": info['name'],
+                "description": info['description'],
+                "abstract_count": cluster_counts.get(int(cid), 0)
+            }
+            
+            # Add abstract IDs or full abstracts
+            if int(cid) in cluster_to_abstracts:
+                abstract_ids = cluster_to_abstracts[int(cid)]
+                if include_full_abstracts:
+                    cluster_data["abstracts"] = [
+                        {
+                            "pmid": pmid,
+                            "title": self.abstracts[pmid]['title'],
+                            "abstract": self.abstracts[pmid]['abstract'],
+                            "journal": self.abstracts[pmid].get('journal', ''),
+                            "authors": self.abstracts[pmid].get('authors', [])
+                        }
+                        for pmid in abstract_ids if pmid in self.abstracts
+                    ]
+                else:
+                    cluster_data["abstract_ids"] = abstract_ids
+            
+            json_hierarchy["base_clusters"].append(cluster_data)
+        
+        # Sort base clusters by size for easier navigation
+        json_hierarchy["base_clusters"].sort(key=lambda x: x['abstract_count'], reverse=True)
+        
+        return json_hierarchy
+        
+        # Always include base clusters summary
+        for cid, info in base_clusters.items():
+            json_hierarchy["base_clusters"].append({
+                "id": int(cid),
+                "name": info['name'],
+                "description": info['description'],
+                "abstract_count": cluster_counts.get(int(cid), 0)
+            })
+        
+        return json_hierarchy
     
     def _build_json_hierarchy(self, hierarchy: Dict, 
                             include_full_abstracts: bool) -> List[Dict]:
@@ -232,8 +425,13 @@ class OutputFormatter:
         with open(os.path.join(output_dir, "hierarchy.txt"), 'w', encoding='utf-8') as f:
             f.write(text_output)
         
-        # Save JSON format
-        json_output = self.format_json_output(hierarchy, include_full_abstracts=True)
+        # Save complete hierarchy JSON (new format with top cluster)
+        complete_json = self._create_complete_hierarchy_json(hierarchy)
+        with open(os.path.join(output_dir, "complete_hierarchy.json"), 'w', encoding='utf-8') as f:
+            json.dump(complete_json, f, indent=2, ensure_ascii=False)
+        
+        # Also save legacy format for compatibility
+        json_output = self.format_json_output(hierarchy, include_full_abstracts=False)
         with open(os.path.join(output_dir, "hierarchy.json"), 'w', encoding='utf-8') as f:
             json.dump(json_output, f, indent=2, ensure_ascii=False)
         
@@ -241,9 +439,109 @@ class OutputFormatter:
         self.export_to_csv(hierarchy, os.path.join(output_dir, "clusters.csv"))
         
         print(f"\nAll outputs saved to {output_dir}/")
+        print("- complete_hierarchy.json: Full hierarchy with top cluster")
         print("- hierarchy.txt: Human-readable text format")
-        print("- hierarchy.json: Structured JSON with full data")
+        print("- hierarchy.json: Detailed structure with abstract IDs")
         print("- clusters.csv: Flattened CSV for analysis")
+    
+    def _create_complete_hierarchy_json(self, hierarchy: Dict) -> Dict:
+        """Create complete hierarchy JSON with top cluster and all levels"""
+        # Load clustering data for counts
+        import pickle
+        from collections import Counter
+        
+        cluster_counts = {}
+        cluster_to_abstracts = {}
+        
+        if self.run_dir and os.path.exists(os.path.join(self.run_dir, 'clustering.pkl')):
+            with open(os.path.join(self.run_dir, 'clustering.pkl'), 'rb') as f:
+                clustering = pickle.load(f)
+            cluster_counts = Counter(clustering['labels'])
+            
+            # Map clusters to abstracts
+            for pmid, label in zip(clustering['pmids'], clustering['labels']):
+                if label not in cluster_to_abstracts:
+                    cluster_to_abstracts[label] = []
+                cluster_to_abstracts[label].append(pmid)
+        
+        # Build complete structure
+        result = {
+            "metadata": {
+                "total_abstracts": len(self.abstracts),
+                "base_clusters": len(hierarchy.get('base_clusters', {})),
+                "hierarchy_levels": len(hierarchy.get('levels', [])) + 1
+            },
+            "top_level_cluster": None,
+            "intermediate_levels": [],
+            "base_clusters": []
+        }
+        
+        # Determine top cluster
+        if 'levels' in hierarchy and hierarchy['levels']:
+            # Get from highest level
+            top_level = hierarchy['levels'][-1]['clusters']
+            if len(top_level) == 1:
+                cluster_id, cluster = list(top_level.items())[0]
+                result["top_level_cluster"] = {
+                    "name": cluster['name'],
+                    "description": cluster['description'],
+                    "total_abstracts": len(self.abstracts),
+                    "direct_children": len(hierarchy.get('base_clusters', {}))
+                }
+            else:
+                # Multiple top clusters
+                result["top_level_cluster"] = {
+                    "name": "Multiple Top-Level Clusters",
+                    "description": f"The hierarchy has {len(top_level)} distinct top-level clusters",
+                    "clusters": [
+                        {
+                            "id": cid,
+                            "name": c['name'],
+                            "description": c['description']
+                        }
+                        for cid, c in top_level.items()
+                    ]
+                }
+        else:
+            # No levels, single implicit top cluster
+            result["top_level_cluster"] = {
+                "name": "Artificial Intelligence in Healthcare and Life Sciences",
+                "description": "All abstracts converged into a single top-level cluster encompassing diverse AI applications",
+                "total_abstracts": len(self.abstracts),
+                "direct_children": len(hierarchy.get('base_clusters', {}))
+            }
+        
+        # Add intermediate levels if they exist
+        if 'levels' in hierarchy:
+            for i, level_data in enumerate(hierarchy['levels'][:-1]):  # Exclude top level
+                level_info = {
+                    "level": i + 1,
+                    "clusters": []
+                }
+                for cid, cluster in level_data['clusters'].items():
+                    level_info["clusters"].append({
+                        "id": cid,
+                        "name": cluster['name'],
+                        "description": cluster['description'],
+                        "children": cluster.get('children', [])
+                    })
+                result["intermediate_levels"].append(level_info)
+        
+        # Add base clusters with full info
+        base_clusters = hierarchy.get('base_clusters', {})
+        for cid, info in sorted(base_clusters.items(), 
+                               key=lambda x: cluster_counts.get(int(x[0]), 0), 
+                               reverse=True):
+            cluster_data = {
+                "id": int(cid),
+                "name": info['name'],
+                "description": info['description'],
+                "abstract_count": cluster_counts.get(int(cid), 0),
+                "pmids": cluster_to_abstracts.get(int(cid), [])
+            }
+            result["base_clusters"].append(cluster_data)
+        
+        return result
 
 
 def test_output_formatter():

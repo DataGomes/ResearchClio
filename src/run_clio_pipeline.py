@@ -114,7 +114,7 @@ class CLIOPipeline:
         
         # Step 6: Format and export outputs
         print(f"\nSTEP 6: Formatting outputs...")
-        formatter = OutputFormatter(abstracts_dict)
+        formatter = OutputFormatter(abstracts_dict, run_dir=self.run_dir)
         formatter.save_outputs(hierarchy, self.run_dir)
         
         # Print summary
