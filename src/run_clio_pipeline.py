@@ -39,7 +39,8 @@ class CLIOPipeline:
                     max_abstracts: int = 100,
                     min_cluster_size: int = 5,
                     target_hierarchy_levels: int = 3,
-                    top_k_clusters: int = 5):
+                    top_k_clusters: int = 5,
+                    use_cache: bool = True):
         """Run the complete CLIO pipeline"""
         
         print("\n" + "="*60)
@@ -54,7 +55,7 @@ class CLIOPipeline:
         # Step 1: Collect PubMed abstracts
         print("STEP 1: Collecting PubMed abstracts...")
         collector = PubMedCollector()
-        abstracts_list = collector.collect_ai_abstracts(max_results=max_abstracts)
+        abstracts_list = collector.collect_ai_abstracts(max_results=max_abstracts, use_cache=use_cache)
         
         if not abstracts_list:
             print("ERROR: No abstracts collected!")
@@ -186,6 +187,11 @@ def main():
         default="output",
         help="Output directory (default: output)"
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable caching of PubMed abstracts"
+    )
     
     args = parser.parse_args()
     
@@ -195,7 +201,8 @@ def main():
         max_abstracts=args.max_abstracts,
         min_cluster_size=args.min_cluster_size,
         target_hierarchy_levels=args.hierarchy_levels,
-        top_k_clusters=args.top_clusters
+        top_k_clusters=args.top_clusters,
+        use_cache=not args.no_cache
     )
 
 

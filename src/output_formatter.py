@@ -8,6 +8,22 @@ import json
 from typing import Dict, List, Optional
 import pandas as pd
 from datetime import datetime
+import numpy as np
+
+def convert_to_serializable(obj):
+    """Convert numpy types to Python native types for JSON serialization"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(i) for i in obj]
+    else:
+        return obj
 
 class OutputFormatter:
     def __init__(self, abstracts_data: Dict[str, Dict], run_dir: str = None):
@@ -427,11 +443,13 @@ class OutputFormatter:
         
         # Save complete hierarchy JSON (new format with top cluster)
         complete_json = self._create_complete_hierarchy_json(hierarchy)
+        complete_json = convert_to_serializable(complete_json)
         with open(os.path.join(output_dir, "complete_hierarchy.json"), 'w', encoding='utf-8') as f:
             json.dump(complete_json, f, indent=2, ensure_ascii=False)
         
         # Also save legacy format for compatibility
         json_output = self.format_json_output(hierarchy, include_full_abstracts=False)
+        json_output = convert_to_serializable(json_output)
         with open(os.path.join(output_dir, "hierarchy.json"), 'w', encoding='utf-8') as f:
             json.dump(json_output, f, indent=2, ensure_ascii=False)
         

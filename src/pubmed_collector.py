@@ -13,6 +13,8 @@ from Bio import Entrez
 from dotenv import load_dotenv
 from tqdm import tqdm
 import urllib.request
+import hashlib
+from datetime import datetime, timedelta
 
 # Fix SSL certificate issues
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -20,13 +22,50 @@ ssl._create_default_https_context = ssl._create_unverified_context
 load_dotenv()
 
 class PubMedCollector:
-    def __init__(self, email: str = None):
+    def __init__(self, email: str = None, cache_dir: str = "cache"):
         """Initialize PubMed collector with email for API access"""
         self.email = email or os.getenv('PUBMED_EMAIL')
         if self.email:
             Entrez.email = self.email
         else:
             print("Warning: No email provided. PubMed rate limits will be stricter.")
+        
+        # Setup cache directory
+        self.cache_dir = cache_dir
+        os.makedirs(self.cache_dir, exist_ok=True)
+    
+    def _get_cache_key(self, query: str, max_results: int) -> str:
+        """Generate a cache key based on query parameters"""
+        cache_string = f"{query}:{max_results}"
+        return hashlib.md5(cache_string.encode()).hexdigest()
+    
+    def _get_cache_path(self, cache_key: str) -> str:
+        """Get the full path to the cache file"""
+        return os.path.join(self.cache_dir, f"pubmed_{cache_key}.json")
+    
+    def _is_cache_valid(self, cache_path: str, max_age_days: int = 7) -> bool:
+        """Check if cache file exists and is recent enough"""
+        if not os.path.exists(cache_path):
+            return False
+        
+        # Check age of cache file
+        file_time = datetime.fromtimestamp(os.path.getmtime(cache_path))
+        age = datetime.now() - file_time
+        
+        return age < timedelta(days=max_age_days)
+    
+    def _load_from_cache(self, cache_path: str) -> List[Dict]:
+        """Load abstracts from cache file"""
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        print(f"Loaded {len(data)} abstracts from cache")
+        return data
+    
+    def _save_to_cache(self, abstracts: List[Dict], cache_path: str):
+        """Save abstracts to cache file"""
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(abstracts, f, indent=2, ensure_ascii=False)
+        print(f"Saved {len(abstracts)} abstracts to cache")
             
     def search_pubmed(self, query: str, max_results: int = 100) -> List[str]:
         """Search PubMed and return list of PMIDs"""
@@ -141,16 +180,33 @@ class PubMedCollector:
             print(f"Error extracting data: {e}")
             return None
     
-    def collect_ai_abstracts(self, max_results: int = 100) -> List[Dict]:
+    def collect_ai_abstracts(self, max_results: int = 100, use_cache: bool = True) -> List[Dict]:
         """Main method to collect AI-related abstracts"""
         # Search query focused on artificial intelligence
         query = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract'
+        
+        # Check cache first
+        if use_cache:
+            cache_key = self._get_cache_key(query, max_results)
+            cache_path = self._get_cache_path(cache_key)
+            
+            if self._is_cache_valid(cache_path):
+                print(f"Using cached PubMed data (cache key: {cache_key})")
+                return self._load_from_cache(cache_path)
+            else:
+                print("Cache not found or expired, fetching from PubMed...")
         
         # Get PMIDs
         pmids = self.search_pubmed(query, max_results)
         
         # Fetch full abstracts
         abstracts = self.fetch_abstracts(pmids)
+        
+        # Save to cache if caching is enabled
+        if use_cache and abstracts:
+            cache_key = self._get_cache_key(query, max_results)
+            cache_path = self._get_cache_path(cache_key)
+            self._save_to_cache(abstracts, cache_path)
         
         return abstracts
     

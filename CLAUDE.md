@@ -20,11 +20,13 @@ All components have been successfully implemented and tested:
    - Fetches abstracts using PubMed E-utilities API
    - Handles rate limiting and SSL issues
    - Extracts title, abstract, PMID, authors, journal
+   - **Caching**: Automatically caches abstracts for 7 days to avoid redundant API calls
 
 2. **Embeddings** (`src/embedder.py`)
    - Uses Sentence-BERT (all-mpnet-base-v2) 
    - Generates 768-dimensional embeddings
    - Includes similarity computation functions
+   - **Offline Mode**: Works with cached model to avoid download timeouts
 
 3. **Clustering** (`src/clusterer.py`)
    - K-means clustering with automatic k selection
@@ -68,6 +70,7 @@ python src/run_clio_pipeline.py --max-abstracts 1000 --min-cluster-size 10 --hie
 - `--hierarchy-levels`: Number of hierarchy levels (default: 3)
 - `--top-clusters`: Number of top-level clusters (default: 5)
 - `--output-dir`: Output directory (default: output)
+- `--no-cache`: Disable caching of PubMed abstracts (cache enabled by default)
 
 ## Output Structure
 Each run creates a timestamped directory with:

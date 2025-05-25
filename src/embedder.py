@@ -15,7 +15,20 @@ class AbstractEmbedder:
     def __init__(self, model_name: str = 'all-mpnet-base-v2'):
         """Initialize embedder with specified model"""
         print(f"Loading embedding model: {model_name}")
-        self.model = SentenceTransformer(model_name)
+        
+        # Set offline mode to use cached model
+        import os
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        os.environ['HF_HUB_OFFLINE'] = '1'
+        
+        try:
+            self.model = SentenceTransformer(model_name)
+        except Exception as e:
+            print(f"Warning: {e}")
+            print("Attempting to load model without checking for updates...")
+            # Force local loading
+            self.model = SentenceTransformer(model_name, cache_folder=os.path.expanduser("~/.cache/huggingface/hub"))
+            
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
         print(f"Model loaded. Embedding dimension: {self.embedding_dim}")
         
