@@ -204,13 +204,8 @@ Respond with JSON in this format:
             
         except Exception as e:
             print(f"Error generating root cluster name: {e}")
-            # Fallback to simple query-based name
-            return {
-                'name': 'AI Research Collection',
-                'description': f'A comprehensive collection of research abstracts on artificial intelligence and related fields. This collection encompasses {len(top_clusters)} major research areas.',
-                'children': list(top_clusters.keys()),
-                'is_root': True
-            }
+            # Re-raise the error - don't generate generic names
+            raise RuntimeError(f"Failed to generate root cluster name: {e}")
     
     def assign_children_to_parents(self, child_clusters: Dict[int, Dict],
                                  parent_clusters: List[Dict],

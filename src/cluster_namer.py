@@ -91,27 +91,39 @@ Based on what distinguishes the cluster abstracts from the nearby non-cluster ab
 1. A descriptive name (maximum 10 words) that captures the unique theme or focus of this cluster
 2. A 2-sentence description explaining what unifies the abstracts in this cluster
 
-Respond ONLY with a JSON object in this exact format:
-{{"name": "Your cluster name here", "description": "Your 2-sentence description here."}}"""
+Respond with ONLY a JSON object (no other text, no explanations) in this exact format:
+{{"name": "Your cluster name here", "description": "Your 2-sentence description here."}}
+
+Example of a good response:
+{{"name": "Deep Learning for Medical Image Analysis", "description": "This cluster focuses on using convolutional neural networks to analyze medical images. The applications range from disease detection to treatment planning across various imaging modalities."}}"""
 
         try:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=200,
                 temperature=1.0,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }]
+                messages=[
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": "{\"name\": \""}
+                ]
             )
             
             # Parse JSON response
             response_text = response.content[0].text.strip()
+            
             # Clean up response if needed
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
             if response_text.endswith('```'):
                 response_text = response_text[:-3]
+            
+            # Try to extract JSON from the response using regex
+            # This handles cases where Claude adds extra text
+            import re
+            json_pattern = r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"description"\s*:\s*"[^"]+"\s*\}'
+            json_match = re.search(json_pattern, response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group()
             
             result = json.loads(response_text.strip())
             
@@ -126,6 +138,34 @@ Respond ONLY with a JSON object in this exact format:
             
             return result
             
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON response: {e}")
+            print(f"Raw response: {response_text[:500] if 'response_text' in locals() else 'No response'}")
+            
+            # Try one more time with a stricter prompt
+            try:
+                retry_prompt = prompt + "\n\nIMPORTANT: Return ONLY the JSON object, nothing else."
+                retry_response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=200,
+                    temperature=0.5,  # Lower temperature for more consistent output
+                    messages=[
+                        {"role": "user", "content": retry_prompt},
+                        {"role": "assistant", "content": "{\"name\": \""}
+                    ]
+                )
+                
+                retry_text = retry_response.content[0].text.strip()
+                # Complete the JSON that we started
+                retry_text = "{\"name\": \"" + retry_text
+                
+                result = json.loads(retry_text)
+                return result
+                
+            except Exception as retry_e:
+                print(f"Retry also failed: {retry_e}")
+                raise RuntimeError(f"Failed to generate cluster name after retry: {e}")
+                
         except Exception as e:
             print(f"Error generating cluster name: {e}")
             raise RuntimeError(f"Failed to generate cluster name using Claude API: {e}")
