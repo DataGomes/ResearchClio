@@ -156,6 +156,62 @@ The suggested_children field should contain the numbers of child clusters that b
         
         return unique_clusters
     
+    def _create_query_root_cluster(self, query: str, top_clusters: Dict[int, Dict]) -> Dict:
+        """Create a root cluster based on the search query using Claude"""
+        # Format top clusters for context
+        clusters_text = ""
+        for i, (cid, cluster) in enumerate(top_clusters.items()):
+            clusters_text += f"{i+1}. {cluster['name']}: {cluster['description']}\n"
+        
+        prompt = f"""Given this PubMed search query used to collect biomedical research abstracts:
+"{query}"
+
+And these are the top-level clusters that were discovered from the PubMed abstracts:
+{clusters_text}
+
+Generate a name and description for the root cluster that encompasses all of these research areas.
+
+Requirements:
+1. The name should be descriptive and concise (max 10 words)
+2. The description should be 2 sentences that capture the breadth of the collection
+3. Both should reflect the original search intent while encompassing all discovered themes
+4. Consider that this is a collection of biomedical/scientific literature from PubMed
+
+Respond with JSON in this format:
+{{"name": "Root cluster name", "description": "Two sentence description."}}"""
+
+        try:
+            response = self.client.messages.create(
+                model=self.claude_model,
+                max_tokens=200,
+                temperature=0.7,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = response.content[0].text.strip()
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            root_info = json.loads(response_text.strip())
+            
+            # Add children and root flag
+            root_info['children'] = list(top_clusters.keys())
+            root_info['is_root'] = True
+            
+            return root_info
+            
+        except Exception as e:
+            print(f"Error generating root cluster name: {e}")
+            # Fallback to simple query-based name
+            return {
+                'name': 'AI Research Collection',
+                'description': f'A comprehensive collection of research abstracts on artificial intelligence and related fields. This collection encompasses {len(top_clusters)} major research areas.',
+                'children': list(top_clusters.keys()),
+                'is_root': True
+            }
+    
     def assign_children_to_parents(self, child_clusters: Dict[int, Dict],
                                  parent_clusters: List[Dict],
                                  child_embeddings: np.ndarray,
@@ -266,7 +322,7 @@ Respond with JSON in this format:
     
     def build_hierarchy(self, base_clusters: Dict[int, Dict],
                        target_levels: int = 3,
-                       top_k: int = 5) -> Dict:
+                       query: str = None) -> Dict:
         """Build complete hierarchy from base clusters to top level"""
         print(f"Building hierarchy (max {target_levels} levels)...")
         
@@ -387,6 +443,24 @@ Respond with JSON in this format:
             current_level += 1
         
         print(f"\nHierarchy complete with {len(hierarchy['levels'])} levels")
+        
+        # Add query-based root cluster if query is provided
+        if query and hierarchy['levels']:
+            # Get the top level clusters
+            top_level = hierarchy['levels'][-1]
+            top_clusters = top_level['clusters']
+            
+            # Create root cluster based on query
+            root_cluster = self._create_query_root_cluster(query, top_clusters)
+            
+            # Add as the final level
+            hierarchy['levels'].append({
+                'level': len(hierarchy['levels']) + 1,
+                'clusters': {0: root_cluster}
+            })
+            
+            print(f"Added query-based root cluster: {root_cluster['name']}")
+        
         return hierarchy
     
     def save_hierarchy(self, hierarchy: Dict, filepath: str = "data/hierarchy.json"):
@@ -433,7 +507,6 @@ def test_hierarchizer():
     hierarchy = hierarchizer.build_hierarchy(
         base_clusters=cluster_names,
         target_levels=2,
-        top_k=2
     )
     
     # Save hierarchy

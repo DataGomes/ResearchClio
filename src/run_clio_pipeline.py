@@ -21,6 +21,9 @@ from output_formatter import OutputFormatter
 
 load_dotenv()
 
+# Default query for AI research
+DEFAULT_QUERY = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract'
+
 class CLIOPipeline:
     def __init__(self, output_dir: str = "output"):
         """Initialize CLIO pipeline"""
@@ -35,11 +38,10 @@ class CLIOPipeline:
         print(f"CLIO Pipeline initialized. Output directory: {self.run_dir}")
     
     def run_pipeline(self, 
-                    query: str = '("artificial intelligence" OR "machine learning" OR "deep learning") AND hasabstract',
+                    query: str = DEFAULT_QUERY,
                     max_abstracts: int = 100,
                     min_cluster_size: int = 5,
                     target_hierarchy_levels: int = 3,
-                    top_k_clusters: int = 5,
                     use_cache: bool = True,
                     start_year: int = None,
                     language: str = "eng",
@@ -52,7 +54,6 @@ class CLIOPipeline:
         print(f"Query: {query}")
         print(f"Max abstracts: {max_abstracts}")
         print(f"Target hierarchy levels: {target_hierarchy_levels}")
-        print(f"Top-level clusters: {top_k_clusters}")
         print("="*60 + "\n")
         
         # Step 1: Collect PubMed abstracts
@@ -124,7 +125,7 @@ class CLIOPipeline:
         hierarchy = hierarchizer.build_hierarchy(
             base_clusters=cluster_names,
             target_levels=target_hierarchy_levels,
-            top_k=top_k_clusters
+            query=query
         )
         
         # Save hierarchy
@@ -194,12 +195,6 @@ def main():
         help="Maximum hierarchy levels to create (default: 10, algorithm will use fewer if appropriate)"
     )
     parser.add_argument(
-        "--top-clusters",
-        type=int,
-        default=5,
-        help="Number of top-level clusters (default: 5)"
-    )
-    parser.add_argument(
         "--output-dir",
         type=str,
         default="output",
@@ -238,7 +233,6 @@ def main():
         max_abstracts=args.max_abstracts,
         min_cluster_size=args.min_cluster_size,
         target_hierarchy_levels=args.hierarchy_levels,
-        top_k_clusters=args.top_clusters,
         use_cache=not args.no_cache,
         start_year=args.start_year,
         language=args.language
