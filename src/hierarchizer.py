@@ -27,7 +27,7 @@ class Hierarchizer:
             raise ValueError("ANTHROPIC_API_KEY not found")
         
         self.client = Anthropic(api_key=self.api_key)
-        self.claude_model = os.getenv('CLAUDE_MODEL', 'claude-3-5-haiku-20241022')
+        self.claude_model = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
         
     def embed_cluster_descriptions(self, cluster_info: Dict[int, Dict]) -> np.ndarray:
         """Embed cluster names and descriptions"""
@@ -109,6 +109,10 @@ The suggested_children field should contain the numbers of child clusters that b
             parent_clusters = json.loads(response_text.strip())
             return parent_clusters
             
+        except json.JSONDecodeError as e:
+            print(f"Error parsing Claude response as JSON: {e}")
+            print(f"Raw response: {response_text[:500]}...")  # Show first 500 chars
+            raise RuntimeError(f"Failed to parse Claude response as JSON: {e}")
         except Exception as e:
             print(f"Error proposing parent clusters: {e}")
             raise RuntimeError(f"Failed to generate parent clusters using Claude API: {e}")
@@ -142,7 +146,7 @@ The suggested_children field should contain the numbers of child clusters that b
             # Merge very similar clusters (similarity > 0.9)
             merged_children = cluster['suggested_children'].copy()
             for j, sim in similarities:
-                if sim > 0.7:  # Lowered from 0.9 to create more distinct clusters
+                if sim > 0.9:  # High threshold - only merge very similar clusters
                     merged_children.extend(all_proposed[j]['suggested_children'])
                     used_indices.add(j)
             
@@ -274,7 +278,8 @@ Respond with JSON in this format:
         current_clusters = base_clusters
         current_level = 0
         
-        while current_level < target_levels - 1 and len(current_clusters) > top_k:
+        # Continue building hierarchy until we reach target levels or can't reduce further
+        while current_level < target_levels - 1 and len(current_clusters) > 1:
             print(f"\nLevel {current_level + 1}: {len(current_clusters)} clusters")
             
             # Embed current level
@@ -284,21 +289,37 @@ Respond with JSON in this format:
             n_current = len(current_clusters)
             levels_remaining = target_levels - current_level - 1
             
-            # For intermediate levels, aim for gradual reduction
-            if levels_remaining > 1:
-                # Ensure we have 5-10 clusters at intermediate levels
-                if n_current > 50:
-                    # For many clusters, reduce by 60-70% per level
-                    target_n_parents = max(10, int(n_current * 0.35))
-                elif n_current > 10:
-                    # For medium counts, aim for 5-10 clusters
-                    target_n_parents = max(5, min(10, int(n_current * 0.6)))
-                else:
-                    # For small counts, minimal reduction
-                    target_n_parents = max(top_k, n_current - 1)
+            # Each parent should have 5-10 children (sweet spot for exploration)
+            min_children_per_parent = 5
+            max_children_per_parent = 10
+            
+            # Calculate target based on desired children per parent
+            min_parents = max(1, n_current // max_children_per_parent)
+            max_parents = n_current // min_children_per_parent
+            
+            if n_current > 100:
+                # For many clusters (e.g., 267), we need multiple levels
+                # 267 -> 30-35 parents (8-9 children each)
+                target_n_parents = max(min_parents, min(35, n_current // 8))
+            elif n_current > 50:
+                # For 50-100 clusters
+                # E.g., 80 -> 10 parents (8 children each)
+                target_n_parents = max(min_parents, min(10, n_current // 8))
+            elif n_current > 30:
+                # For 30-50 clusters
+                # E.g., 40 -> 5 parents (8 children each)
+                target_n_parents = max(min_parents, min(8, n_current // 7))
+            elif n_current > 20:
+                # For 20-30 clusters
+                # E.g., 25 -> 4 parents (6-7 children each)
+                target_n_parents = max(2, n_current // 7)
+            elif n_current >= 10:
+                # For 10-20 clusters
+                # E.g., 15 -> 2 parents (7-8 children each)
+                target_n_parents = max(2, n_current // 8)
             else:
-                # Last level: reach the final top_k target
-                target_n_parents = top_k
+                # For <10 clusters, create single top cluster
+                target_n_parents = 1
             
             print(f"Target parent clusters: {target_n_parents}")
             

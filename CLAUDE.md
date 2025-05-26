@@ -94,15 +94,15 @@ This is the main output for downstream applications, containing:
 - Complete PMID lists for each cluster
 
 ## Cost Estimation
-- 100 abstracts: ~$0.10 (using Haiku)
-- 1000 abstracts: ~$1.00
-- 10,000 abstracts: ~$10.00
+- 100 abstracts: ~$0.30 (using Sonnet)
+- 1000 abstracts: ~$3.00
+- 10,000 abstracts: ~$30.00
 
 ## Environment Variables
 Set in `.env` file:
 - `ANTHROPIC_API_KEY`: Your Claude API key
 - `PUBMED_EMAIL`: Your email for PubMed API
-- `CLAUDE_MODEL`: Model choice (default: claude-3-haiku-20240307)
+- `CLAUDE_MODEL`: Model choice (default: claude-sonnet-4-20250514)
 
 ## Troubleshooting
 1. **SSL Certificate Errors**: Already handled in code

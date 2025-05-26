@@ -24,9 +24,35 @@ class AbstractClusterer:
     def determine_optimal_k(self, embeddings: np.ndarray, 
                           min_k: int = 5, 
                           max_k: int = None,
-                          method: str = 'silhouette') -> int:
+                          method: str = 'hierarchical') -> int:
         """Determine optimal number of clusters"""
         n_samples = len(embeddings)
+        
+        # For hierarchical clustering, we need many more base clusters
+        if method == 'hierarchical':
+            # Dynamic scaling based on dataset size
+            # For small datasets (<10k): ~50-100 abstracts per cluster
+            # For medium datasets (10k-100k): ~100-200 abstracts per cluster  
+            # For large datasets (>100k): ~200-500 abstracts per cluster
+            
+            if n_samples < 10000:
+                # Small datasets: more granular clusters
+                target_size = max(50, n_samples // 100)  # Cap at ~100 clusters
+            elif n_samples < 100000:
+                # Medium datasets: target 500-800 clusters
+                # For 40k documents: ~70 docs/cluster = ~570 clusters
+                target_size = max(70, int(n_samples / 600))
+            else:
+                # Large datasets: prevent too many clusters
+                # Cap at 1000 clusters max
+                target_size = max(200, n_samples // 1000)
+            
+            optimal_k = max(min_k, min(n_samples // target_size, n_samples // self.min_cluster_size))
+            
+            # Ensure we have enough clusters for meaningful hierarchy
+            print(f"Using hierarchical method: {optimal_k} clusters for {n_samples} documents (target size: {target_size} docs/cluster)")
+            self.optimal_k = optimal_k
+            return optimal_k
         
         # Set max_k based on dataset size
         if max_k is None:

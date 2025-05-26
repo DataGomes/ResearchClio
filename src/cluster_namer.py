@@ -22,7 +22,7 @@ class ClusterNamer:
             raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
         
         self.client = Anthropic(api_key=self.api_key)
-        self.model = model or os.getenv('CLAUDE_MODEL', 'claude-3-5-haiku-20241022')
+        self.model = model or os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
         print(f"Using Claude model: {self.model}")
         
     def sample_abstracts(self, cluster_pmids: List[str], 

@@ -42,7 +42,8 @@ class CLIOPipeline:
                     top_k_clusters: int = 5,
                     use_cache: bool = True,
                     start_year: int = None,
-                    language: str = "eng"):
+                    language: str = "eng",
+                    clustering_method: str = "hierarchical"):
         """Run the complete CLIO pipeline"""
         
         print("\n" + "="*60)
@@ -92,9 +93,9 @@ class CLIOPipeline:
         embedder.save_embeddings(embeddings, pmids, embeddings_file)
         
         # Step 3: Perform clustering
-        print(f"\nSTEP 3: Clustering abstracts...")
+        print(f"\nSTEP 3: Clustering abstracts (method: {clustering_method})...")
         clusterer = AbstractClusterer(min_cluster_size=min_cluster_size)
-        labels = clusterer.cluster_embeddings(embeddings)
+        labels = clusterer.cluster_embeddings(embeddings, method=clustering_method)
         
         # Get cluster assignments
         cluster_abstracts = clusterer.get_cluster_abstracts(labels, pmids)
@@ -217,6 +218,13 @@ def main():
         type=str,
         default="eng",
         help="Language filter (default: eng for English)"
+    )
+    parser.add_argument(
+        "--clustering-method",
+        type=str,
+        default="hierarchical",
+        choices=["hierarchical", "silhouette", "sqrt"],
+        help="Clustering method: hierarchical (many clusters for hierarchy), silhouette (optimal separation), sqrt (heuristic)"
     )
     
     args = parser.parse_args()
