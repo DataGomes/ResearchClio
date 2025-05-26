@@ -95,7 +95,10 @@ class CLIOPipeline:
         # Step 3: Perform clustering
         print(f"\nSTEP 3: Clustering abstracts (method: {clustering_method})...")
         clusterer = AbstractClusterer(min_cluster_size=min_cluster_size)
-        labels = clusterer.cluster_embeddings(embeddings, method=clustering_method)
+        # First determine optimal k using the method
+        optimal_k = clusterer.determine_optimal_k(embeddings, method=clustering_method)
+        # Then cluster with that k
+        labels = clusterer.cluster_embeddings(embeddings, k=optimal_k)
         
         # Get cluster assignments
         cluster_abstracts = clusterer.get_cluster_abstracts(labels, pmids)
