@@ -12,6 +12,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from collections import Counter
 from tqdm import tqdm
+import warnings
 
 class AbstractClusterer:
     def __init__(self, min_cluster_size: int = 5):

@@ -27,7 +27,7 @@ class Hierarchizer:
             raise ValueError("ANTHROPIC_API_KEY not found")
         
         self.client = Anthropic(api_key=self.api_key)
-        self.claude_model = os.getenv('CLAUDE_MODEL', 'claude-3-haiku-20240307')
+        self.claude_model = os.getenv('CLAUDE_MODEL', 'claude-3-5-haiku-20241022')
         
     def embed_cluster_descriptions(self, cluster_info: Dict[int, Dict]) -> np.ndarray:
         """Embed cluster names and descriptions"""
@@ -92,7 +92,15 @@ The suggested_children field should contain the numbers of child clusters that b
                 messages=[{"role": "user", "content": prompt}]
             )
             
+            # Debug the response
+            if not response.content:
+                raise RuntimeError("Claude API returned empty content")
+            
             response_text = response.content[0].text.strip()
+            
+            if not response_text:
+                raise RuntimeError("Claude API returned empty text")
+            
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
             if response_text.endswith('```'):
@@ -103,12 +111,7 @@ The suggested_children field should contain the numbers of child clusters that b
             
         except Exception as e:
             print(f"Error proposing parent clusters: {e}")
-            # Fallback: create generic parents
-            return [{
-                "name": f"AI Research Area {i+1}",
-                "description": "A group of related AI research topics.",
-                "suggested_children": list(range(i, min(i+3, len(child_clusters))))
-            } for i in range(0, len(child_clusters), 3)]
+            raise RuntimeError(f"Failed to generate parent clusters using Claude API: {e}")
     
     def deduplicate_clusters(self, all_proposed: List[Dict]) -> List[Dict]:
         """Deduplicate similar parent clusters across neighborhoods"""
@@ -261,7 +264,7 @@ Respond with JSON in this format:
                        target_levels: int = 3,
                        top_k: int = 5) -> Dict:
         """Build complete hierarchy from base clusters to top level"""
-        print(f"Building {target_levels}-level hierarchy...")
+        print(f"Building hierarchy (max {target_levels} levels)...")
         
         hierarchy = {
             'levels': [],
@@ -283,9 +286,16 @@ Respond with JSON in this format:
             
             # For intermediate levels, aim for gradual reduction
             if levels_remaining > 1:
-                # Use sqrt reduction for natural hierarchy
-                # This creates ~7-10 children per parent on average
-                target_n_parents = max(top_k, int(np.sqrt(n_current) * 1.5))
+                # Ensure we have 5-10 clusters at intermediate levels
+                if n_current > 50:
+                    # For many clusters, reduce by 60-70% per level
+                    target_n_parents = max(10, int(n_current * 0.35))
+                elif n_current > 10:
+                    # For medium counts, aim for 5-10 clusters
+                    target_n_parents = max(5, min(10, int(n_current * 0.6)))
+                else:
+                    # For small counts, minimal reduction
+                    target_n_parents = max(top_k, n_current - 1)
             else:
                 # Last level: reach the final top_k target
                 target_n_parents = top_k

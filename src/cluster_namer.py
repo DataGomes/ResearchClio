@@ -22,7 +22,7 @@ class ClusterNamer:
             raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
         
         self.client = Anthropic(api_key=self.api_key)
-        self.model = model or os.getenv('CLAUDE_MODEL', 'claude-3-haiku-20240307')
+        self.model = model or os.getenv('CLAUDE_MODEL', 'claude-3-5-haiku-20241022')
         print(f"Using Claude model: {self.model}")
         
     def sample_abstracts(self, cluster_pmids: List[str], 
@@ -128,11 +128,7 @@ Respond ONLY with a JSON object in this exact format:
             
         except Exception as e:
             print(f"Error generating cluster name: {e}")
-            # Fallback name
-            return {
-                "name": f"AI Cluster {len(cluster_abstracts)} abstracts",
-                "description": "A cluster of AI-related abstracts. Unable to generate specific description."
-            }
+            raise RuntimeError(f"Failed to generate cluster name using Claude API: {e}")
     
     def name_all_clusters(self, cluster_abstracts: Dict[int, List[str]],
                          all_abstracts: Dict[str, Dict],

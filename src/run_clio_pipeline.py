@@ -115,7 +115,7 @@ class CLIOPipeline:
         namer.save_cluster_names(cluster_names, names_file)
         
         # Step 5: Build hierarchy
-        print(f"\nSTEP 5: Building {target_hierarchy_levels}-level hierarchy...")
+        print(f"\nSTEP 5: Building hierarchy (max {target_hierarchy_levels} levels)...")
         hierarchizer = Hierarchizer()
         hierarchy = hierarchizer.build_hierarchy(
             base_clusters=cluster_names,
