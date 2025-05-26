@@ -26,3 +26,6 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Planning documents
+frontend_implementation_plan.md

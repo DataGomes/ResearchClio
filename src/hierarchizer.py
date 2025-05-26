@@ -293,7 +293,10 @@ Respond with JSON in this format:
             print(f"Target parent clusters: {target_n_parents}")
             
             # Group into neighborhoods
-            neighborhoods = self.group_into_neighborhoods(embeddings)
+            # Create neighborhoods such that we don't exceed target parents
+            # Each neighborhood will propose at least 1 parent
+            target_per_neighborhood = max(1, n_current // target_n_parents)
+            neighborhoods = self.group_into_neighborhoods(embeddings, target_per_neighborhood)
             n_neighborhoods = len(np.unique(neighborhoods))
             print(f"Created {n_neighborhoods} neighborhoods")
             
