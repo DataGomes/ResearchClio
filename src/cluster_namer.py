@@ -103,8 +103,7 @@ Example of a good response:
                 max_tokens=200,
                 temperature=1.0,
                 messages=[
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": "{\"name\": \""}
+                    {"role": "user", "content": prompt}
                 ]
             )
             
@@ -118,9 +117,17 @@ Example of a good response:
                 response_text = response_text[:-3]
             
             # Try to extract JSON from the response using regex
-            # This handles cases where Claude adds extra text
+            # This handles cases where Claude adds extra text or returns partial JSON
             import re
-            json_pattern = r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"description"\s*:\s*"[^"]+"\s*\}'
+            
+            # First check if we have a partial response (missing opening brace)
+            if response_text and not response_text.strip().startswith('{'):
+                # Check if it looks like a JSON continuation
+                if '"name"' in response_text or response_text.strip().startswith('"'):
+                    response_text = '{' + response_text
+            
+            # Look for complete JSON object
+            json_pattern = r'\{[^{}]*"name"[^{}]*:[^{}]*"[^"]*"[^{}]*,\s*"description"[^{}]*:[^{}]*"[^"]*"[^{}]*\}'
             json_match = re.search(json_pattern, response_text, re.DOTALL)
             if json_match:
                 response_text = json_match.group()

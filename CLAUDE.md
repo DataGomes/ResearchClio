@@ -21,6 +21,7 @@ All components have been successfully implemented and tested:
    - Handles rate limiting and SSL issues
    - Extracts title, abstract, PMID, authors, journal
    - **Caching**: Automatically caches abstracts for 7 days to avoid redundant API calls
+   - **Segment-level caching**: Better handling of large queries with recursive date splitting
 
 2. **Embeddings** (`src/embedder.py`)
    - Uses Sentence-BERT (all-mpnet-base-v2) 
@@ -30,18 +31,23 @@ All components have been successfully implemented and tested:
 
 3. **Clustering** (`src/clusterer.py`)
    - K-means clustering with automatic k selection
-   - Silhouette score optimization
+   - Multiple clustering methods: hierarchical, silhouette optimization, sqrt heuristic
    - Representative abstract identification
+   - Normalized embeddings for better clustering
 
 4. **Cluster Naming** (`src/cluster_namer.py`)
-   - Claude API integration (Haiku model)
+   - Claude API integration (configurable model via CLAUDE_MODEL)
    - Samples in-cluster and out-cluster abstracts
    - Generates descriptive names and 2-sentence descriptions
+   - Robust JSON parsing with regex patterns
+   - Handles partial responses from Claude
 
 5. **Hierarchizer** (`src/hierarchizer.py`)
-   - Multi-level hierarchy building
+   - Multi-level hierarchy building with adaptive levels
    - Neighborhood-based processing
    - Parent cluster generation and deduplication
+   - Automatic top-level cluster determination (4-10 clusters)
+   - Query-based root cluster generation
 
 6. **Output Formatter** (`src/output_formatter.py`)
    - Text format (hierarchical tree view)
@@ -54,21 +60,24 @@ All components have been successfully implemented and tested:
 ```bash
 source venv/bin/activate
 export TOKENIZERS_PARALLELISM=false  # Suppress warnings
-python src/run_clio_pipeline.py --max-abstracts 20 --min-cluster-size 3 --hierarchy-levels 2 --top-clusters 3
+python src/run_clio_pipeline.py --max-abstracts 20 --min-cluster-size 3 --hierarchy-levels 2 --clustering-method hierarchical
 ```
 
 ### Production Run (1000 abstracts)
 ```bash
 source venv/bin/activate
 export TOKENIZERS_PARALLELISM=false
-python src/run_clio_pipeline.py --max-abstracts 1000 --min-cluster-size 10 --hierarchy-levels 3 --top-clusters 5
+python src/run_clio_pipeline.py --max-abstracts 1000 --min-cluster-size 10 --hierarchy-levels 3 --clustering-method silhouette
 ```
 
 ### Command Line Options
 - `--max-abstracts`: Number of abstracts to fetch (default: 100)
 - `--min-cluster-size`: Minimum abstracts per cluster (default: 5)
 - `--hierarchy-levels`: Number of hierarchy levels (default: 3)
-- `--top-clusters`: Number of top-level clusters (default: 5)
+- `--clustering-method`: Clustering strategy (default: hierarchical)
+  - `hierarchical`: Creates many clusters for better hierarchy building
+  - `silhouette`: Optimizes for cluster separation using silhouette score
+  - `sqrt`: Uses heuristic based on square root of number of abstracts
 - `--output-dir`: Output directory (default: output)
 - `--no-cache`: Disable caching of PubMed abstracts (cache enabled by default)
 
@@ -88,7 +97,8 @@ output/run_YYYYMMDD_HHMMSS/
 
 ### Key Output: complete_hierarchy.json
 This is the main output for downstream applications, containing:
-- Top-level cluster(s) with name and description
+- Root cluster with query-based name and description
+- Top-level clusters (automatically determined, typically 4-10)
 - Intermediate hierarchy levels (if any)
 - All base clusters sorted by size
 - Complete PMID lists for each cluster
@@ -112,7 +122,11 @@ Set in `.env` file:
 
 ## Example Output
 ```
-TOP LEVEL (3 clusters):
+ROOT CLUSTER:
+▪ Artificial Intelligence Research
+  A comprehensive collection of research on artificial intelligence applications. The abstracts cover diverse AI methodologies and their applications across various domains.
+
+TOP LEVEL (5 clusters):
 
 ▪ Artificial Intelligence in Medical Imaging and Diagnostics
   This cluster focuses on AI applications in radiology and pathology...
