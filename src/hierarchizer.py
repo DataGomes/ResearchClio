@@ -377,6 +377,66 @@ Respond with JSON in this format:
         
         return final_assignments, final_parents
     
+    def collapse_single_child_clusters(self, hierarchy: Dict) -> None:
+        """Collapse clusters that have only one child by promoting grandchildren to direct children"""
+        # Process each level from top to bottom
+        for level_idx in range(len(hierarchy['levels']) - 1, -1, -1):
+            level = hierarchy['levels'][level_idx]
+            clusters = level['clusters']
+            clusters_to_remove = []
+            
+            for cluster_id, cluster in list(clusters.items()):
+                if len(cluster.get('children', [])) == 1:
+                    single_child_id = cluster['children'][0]
+                    
+                    # Find the child cluster (could be in next level or base clusters)
+                    child_cluster = None
+                    child_level_idx = None
+                    
+                    # Check next level first
+                    if level_idx > 0:
+                        next_level = hierarchy['levels'][level_idx - 1]
+                        if str(single_child_id) in next_level['clusters']:
+                            child_cluster = next_level['clusters'][str(single_child_id)]
+                            child_level_idx = level_idx - 1
+                    
+                    # If not found and we're at level 1, check base clusters
+                    if child_cluster is None and level_idx == 0:
+                        if single_child_id in hierarchy['base_clusters']:
+                            child_cluster = hierarchy['base_clusters'][single_child_id]
+                    
+                    if child_cluster and child_level_idx is not None:
+                        # Get grandchildren
+                        grandchildren = child_cluster.get('children', [])
+                        
+                        if grandchildren:
+                            print(f"Collapsing single-child cluster: '{cluster['name']}' -> '{child_cluster['name']}' -> {len(grandchildren)} grandchildren")
+                            
+                            # Promote grandchildren to be direct children of parent
+                            cluster['children'] = grandchildren
+                            
+                            # Remove the intermediate child cluster
+                            del hierarchy['levels'][child_level_idx]['clusters'][str(single_child_id)]
+                    elif child_cluster is None and level_idx == 0:
+                        # This is a parent with a single base cluster child
+                        # In this case, we should remove this parent entirely
+                        clusters_to_remove.append(cluster_id)
+                        print(f"Removing single-child parent cluster: '{cluster['name']}' with base cluster child {single_child_id}")
+            
+            # Remove clusters marked for removal
+            for cluster_id in clusters_to_remove:
+                del clusters[cluster_id]
+            
+            # Update parent references in previous level if needed
+            if level_idx < len(hierarchy['levels']) - 1:
+                parent_level = hierarchy['levels'][level_idx + 1]
+                for parent_cluster in parent_level['clusters'].values():
+                    # Remove references to removed clusters
+                    parent_cluster['children'] = [
+                        child for child in parent_cluster.get('children', [])
+                        if child not in clusters_to_remove
+                    ]
+    
     def regenerate_parent_names(self, parent_clusters: List[Dict],
                               parent_assignments: Dict[int, List[int]],
                               child_clusters: Dict[int, Dict]) -> List[Dict]:
@@ -552,6 +612,11 @@ Respond with JSON in this format:
             current_level += 1
         
         print(f"\nHierarchy complete with {len(hierarchy['levels'])} levels")
+        
+        # Collapse any single-child clusters
+        if hierarchy['levels']:
+            print("\nChecking for single-child clusters to collapse...")
+            self.collapse_single_child_clusters(hierarchy)
         
         # Add query-based root cluster if query is provided
         if query and hierarchy['levels']:
