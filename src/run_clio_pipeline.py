@@ -45,7 +45,11 @@ class CLIOPipeline:
                     use_cache: bool = True,
                     start_year: int = None,
                     language: str = "eng",
-                    clustering_method: str = "hierarchical"):
+                    clustering_method: str = "hierarchical",
+                    enforce_children_constraints: bool = True,
+                    min_children: int = 2,
+                    max_children: int = 9,
+                    ideal_children: int = 5):
         """Run the complete CLIO pipeline"""
         
         print("\n" + "="*60)
@@ -125,7 +129,11 @@ class CLIOPipeline:
         hierarchy = hierarchizer.build_hierarchy(
             base_clusters=cluster_names,
             target_levels=target_hierarchy_levels,
-            query=query
+            query=query,
+            enforce_children_constraints=enforce_children_constraints,
+            min_children=min_children,
+            max_children=max_children,
+            ideal_children=ideal_children
         )
         
         # Save hierarchy
@@ -224,6 +232,29 @@ def main():
         choices=["hierarchical", "silhouette", "sqrt"],
         help="Clustering method: hierarchical (many clusters for hierarchy), silhouette (optimal separation), sqrt (heuristic)"
     )
+    parser.add_argument(
+        "--no-balance",
+        action="store_true",
+        help="Disable balancing of parent-child relationships"
+    )
+    parser.add_argument(
+        "--min-children",
+        type=int,
+        default=2,
+        help="Minimum children per parent cluster (default: 2)"
+    )
+    parser.add_argument(
+        "--max-children",
+        type=int,
+        default=9,
+        help="Maximum children per parent cluster (default: 9)"
+    )
+    parser.add_argument(
+        "--ideal-children",
+        type=int,
+        default=5,
+        help="Ideal number of children per parent cluster (default: 5)"
+    )
     
     args = parser.parse_args()
     
@@ -235,7 +266,12 @@ def main():
         target_hierarchy_levels=args.hierarchy_levels,
         use_cache=not args.no_cache,
         start_year=args.start_year,
-        language=args.language
+        language=args.language,
+        clustering_method=args.clustering_method,
+        enforce_children_constraints=not args.no_balance,
+        min_children=args.min_children,
+        max_children=args.max_children,
+        ideal_children=args.ideal_children
     )
 
 

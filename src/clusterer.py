@@ -36,16 +36,16 @@ class AbstractClusterer:
             # For large datasets (>100k): ~200-500 abstracts per cluster
             
             if n_samples < 10000:
-                # Small datasets: more granular clusters
-                target_size = max(50, n_samples // 100)  # Cap at ~100 clusters
-            elif n_samples < 100000:
-                # Medium datasets: target 500-800 clusters
-                # For 40k documents: ~70 docs/cluster = ~570 clusters
-                target_size = max(70, int(n_samples / 600))
+                # Small datasets: still relatively granular
+                target_size = max(50, n_samples // 50)  # Cap at ~200 clusters for 10k docs
+            elif n_samples < 50000:
+                # Medium datasets (including 40k): target 150-300 clusters
+                # For 40k documents: ~130-260 docs/cluster = ~150-300 clusters
+                target_size = max(130, min(260, int(n_samples / 200)))
             else:
                 # Large datasets: prevent too many clusters
-                # Cap at 1000 clusters max
-                target_size = max(200, n_samples // 1000)
+                # For 100k documents: ~250 docs/cluster = ~400 clusters
+                target_size = max(250, n_samples // 400)
             
             optimal_k = max(min_k, min(n_samples // target_size, n_samples // self.min_cluster_size))
             

@@ -262,6 +262,121 @@ Respond with just the number (0-{len(parent_clusters)-1}) of the best parent clu
         
         return parent_assignments
     
+    def balance_parent_children(self, parent_assignments: Dict[int, List[int]], 
+                               parent_clusters: List[Dict],
+                               child_clusters: Dict[int, Dict],
+                               min_children: int = 2, 
+                               max_children: int = 9,
+                               ideal_children: int = 5) -> Tuple[Dict[int, List[int]], List[Dict]]:
+        """Redistribute children to ensure balanced parent clusters using Claude"""
+        print(f"\nBalancing parent-child relationships (target: {min_children}-{max_children} children per parent)")
+        
+        # Identify parents that need rebalancing
+        overloaded = {p: children for p, children in parent_assignments.items() 
+                      if len(children) > max_children}
+        underloaded = {p: children for p, children in parent_assignments.items() 
+                       if 0 < len(children) < min_children}
+        empty_parents = [p for p, children in parent_assignments.items() if len(children) == 0]
+        
+        print(f"Found {len(overloaded)} overloaded parents, {len(underloaded)} underloaded parents")
+        
+        # Remove empty parents
+        parent_clusters = [p for i, p in enumerate(parent_clusters) if i not in empty_parents]
+        new_assignments = {i: parent_assignments[old_i] 
+                          for i, old_i in enumerate(sorted(set(range(len(parent_assignments))) - set(empty_parents)))}
+        
+        # Split overloaded parents
+        new_parent_id = len(parent_clusters)
+        for parent_id, children in overloaded.items():
+            if parent_id in empty_parents:
+                continue
+                
+            # Map to new assignment index
+            new_parent_idx = list(new_assignments.keys())[list(new_assignments.values()).index(children)]
+            
+            while len(new_assignments[new_parent_idx]) > max_children:
+                # Take some children for a new parent
+                split_size = min(ideal_children, len(new_assignments[new_parent_idx]) - ideal_children)
+                split_children = new_assignments[new_parent_idx][-split_size:]
+                new_assignments[new_parent_idx] = new_assignments[new_parent_idx][:-split_size]
+                
+                # Create new parent description using Claude
+                children_text = ""
+                for child_id in split_children[:10]:
+                    child = child_clusters[child_id]
+                    children_text += f"- {child['name']}: {child['description']}\n"
+                
+                prompt = f"""These child clusters need a parent cluster:
+
+{children_text}
+
+Generate a parent cluster name and description.
+
+Respond with JSON in this format:
+{{"name": "Parent name (max 10 words)", "description": "Two sentence description."}}"""
+
+                try:
+                    response = self.client.messages.create(
+                        model=self.claude_model,
+                        max_tokens=200,
+                        temperature=0.7,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    
+                    response_text = response.content[0].text.strip()
+                    if response_text.startswith('```json'):
+                        response_text = response_text[7:]
+                    if response_text.endswith('```'):
+                        response_text = response_text[:-3]
+                    
+                    new_parent = json.loads(response_text.strip())
+                    new_parent['children'] = split_children
+                    parent_clusters.append(new_parent)
+                    new_assignments[new_parent_id] = split_children
+                    new_parent_id += 1
+                    
+                except Exception as e:
+                    print(f"Error creating split parent: {e}")
+                    # Fallback: just keep the split without creating new parent
+                    break
+        
+        # Handle underloaded parents by merging or redistributing
+        for parent_idx in list(underloaded.keys()):
+            if parent_idx in empty_parents or parent_idx not in new_assignments:
+                continue
+                
+            children = new_assignments.get(parent_idx, [])
+            if len(children) >= min_children:  # Already fixed
+                continue
+                
+            # Find a suitable parent to merge with (prefer smaller parents)
+            candidates = [(p, len(cs)) for p, cs in new_assignments.items() 
+                         if p != parent_idx and len(cs) + len(children) <= max_children]
+            
+            if candidates:
+                # Merge with smallest suitable parent
+                merge_target = min(candidates, key=lambda x: x[1])[0]
+                new_assignments[merge_target].extend(children)
+                new_assignments[parent_idx] = []
+        
+        # Remove empty assignments and renumber
+        final_assignments = {}
+        final_parents = []
+        new_idx = 0
+        
+        for old_idx, (parent_idx, children) in enumerate(new_assignments.items()):
+            if children:  # Only keep non-empty parents
+                final_assignments[new_idx] = children
+                if parent_idx < len(parent_clusters):
+                    final_parents.append(parent_clusters[parent_idx])
+                new_idx += 1
+        
+        print(f"After balancing: {len(final_parents)} parents")
+        children_counts = [len(children) for children in final_assignments.values()]
+        print(f"Children per parent: min={min(children_counts)}, max={max(children_counts)}, avg={sum(children_counts)/len(children_counts):.1f}")
+        
+        return final_assignments, final_parents
+    
     def regenerate_parent_names(self, parent_clusters: List[Dict],
                               parent_assignments: Dict[int, List[int]],
                               child_clusters: Dict[int, Dict]) -> List[Dict]:
@@ -317,7 +432,11 @@ Respond with JSON in this format:
     
     def build_hierarchy(self, base_clusters: Dict[int, Dict],
                        target_levels: int = 3,
-                       query: str = None) -> Dict:
+                       query: str = None,
+                       enforce_children_constraints: bool = True,
+                       min_children: int = 2,
+                       max_children: int = 9,
+                       ideal_children: int = 5) -> Dict:
         """Build complete hierarchy from base clusters to top level"""
         print(f"Building hierarchy (max {target_levels} levels)...")
         
@@ -340,39 +459,27 @@ Respond with JSON in this format:
             n_current = len(current_clusters)
             levels_remaining = target_levels - current_level - 1
             
-            # Each parent should have 5-10 children (sweet spot for exploration)
-            min_children_per_parent = 5
-            max_children_per_parent = 10
+            # Simple calculation: target ideal_children per parent
+            target_n_parents = max(1, n_current // ideal_children)
             
-            # Calculate target based on desired children per parent
-            min_parents = max(1, n_current // max_children_per_parent)
-            max_parents = n_current // min_children_per_parent
+            # Ensure we don't create too few or too many parents
+            min_allowed_parents = max(1, n_current // max_children)  # Each parent has at most max_children
+            max_allowed_parents = n_current // min_children  # Each parent has at least min_children
             
-            if n_current > 100:
-                # For many clusters (e.g., 267), we need multiple levels
-                # 267 -> 30-35 parents (8-9 children each)
-                target_n_parents = max(min_parents, min(35, n_current // 8))
-            elif n_current > 50:
-                # For 50-100 clusters
-                # E.g., 80 -> 10 parents (8 children each)
-                target_n_parents = max(min_parents, min(10, n_current // 8))
-            elif n_current > 30:
-                # For 30-50 clusters
-                # E.g., 40 -> 5 parents (8 children each)
-                target_n_parents = max(min_parents, min(8, n_current // 7))
-            elif n_current > 20:
-                # For 20-30 clusters
-                # E.g., 25 -> 4 parents (6-7 children each)
-                target_n_parents = max(2, n_current // 7)
-            elif n_current >= 10:
-                # For 10-20 clusters
-                # E.g., 15 -> 2 parents (7-8 children each)
-                target_n_parents = max(2, n_current // 8)
-            else:
-                # For <10 clusters, create single top cluster
-                target_n_parents = 1
+            # Apply constraints
+            target_n_parents = max(min_allowed_parents, min(max_allowed_parents, target_n_parents))
+            
+            # Special case: if we would create just 1-2 parents and we're not at the last level
+            if target_n_parents <= 2 and levels_remaining > 1 and n_current > 10:
+                # Adjust to create more parents for better hierarchy
+                target_n_parents = max(3, n_current // 7)
             
             print(f"Target parent clusters: {target_n_parents}")
+            
+            # Stop building hierarchy if we would only create 1 parent cluster
+            if target_n_parents == 1:
+                print(f"Stopping hierarchy building - would only create 1 parent cluster")
+                break
             
             # Group into neighborhoods
             # Create neighborhoods such that we don't exceed target parents
@@ -412,6 +519,13 @@ Respond with JSON in this format:
             parent_assignments = self.assign_children_to_parents(
                 current_clusters, parent_clusters, embeddings, cluster_ids
             )
+            
+            # Balance parent-child relationships if requested
+            if enforce_children_constraints:
+                parent_assignments, parent_clusters = self.balance_parent_children(
+                    parent_assignments, parent_clusters, current_clusters,
+                    min_children=min_children, max_children=max_children, ideal_children=ideal_children
+                )
             
             # Regenerate parent names based on actual assignments
             parent_clusters = self.regenerate_parent_names(
