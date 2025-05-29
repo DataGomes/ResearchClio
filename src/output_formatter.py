@@ -555,8 +555,20 @@ class OutputFormatter:
                 "name": info['name'],
                 "description": info['description'],
                 "abstract_count": cluster_counts.get(int(cid), 0),
-                "pmids": cluster_to_abstracts.get(int(cid), [])
+                "pmids": cluster_to_abstracts.get(int(cid), []),
+                "papers": []
             }
+            
+            # Add paper title for each PMID in this cluster
+            if int(cid) in cluster_to_abstracts:
+                for pmid in cluster_to_abstracts[int(cid)]:
+                    if pmid in self.abstracts:
+                        paper_info = {
+                            "pmid": pmid,
+                            "title": self.abstracts[pmid]['title']
+                        }
+                        cluster_data["papers"].append(paper_info)
+            
             result["base_clusters"].append(cluster_data)
         
         return result
