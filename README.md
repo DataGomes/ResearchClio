@@ -1,6 +1,6 @@
 # CLIO for PubMed: Hierarchical Clustering of Scientific Abstracts
 
-This project implements the CLIO (Cluster Induction and Ontology) hierarchical clustering system for PubMed abstracts, based on the approach described in the CLIO paper. It automatically organizes scientific literature about artificial intelligence into a meaningful hierarchical structure.
+This project implements the CLIO hierarchical clustering system for PubMed abstracts, based on the approach described in the CLIO paper. It automatically organizes scientific literature about artificial intelligence into a meaningful hierarchical structure.
 
 ## Features
 
